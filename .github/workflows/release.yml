@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version tag, for example 0.1.0
+        required: true
+        type: string
+      prerelease:
+        description: Mark the GitHub release as a prerelease
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build And Publish
+    runs-on: macos-14
+
+    env:
+      NONO_SWIFT_BINARY_TARGET: local
+      NONO_REQUIRE_APPLY: "1"
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify arm64 runner
+        run: test "$(uname -m)" = "arm64"
+
+      - name: Install Rust macOS target
+        run: rustup target add aarch64-apple-darwin
+
+      - name: Build arm64 artifact
+        run: make artifacts
+
+      - name: Verify artifact manifest
+        run: make verify-artifacts
+
+      - name: Run Swift tests
+        run: swift test
+
+      - name: Run strict apply fixture
+        run: |
+          NONO_APPLY_SCENARIO=minimal-filesystem-network swift run NonoSwiftApplySandboxFixture
+          NONO_APPLY_SCENARIO=processes-run-with-system-grants swift run NonoSwiftApplySandboxFixture
+
+      - name: Package XCFramework
+        id: package
+        run: |
+          mkdir -p .build/release
+          ditto -c -k --sequesterRsrc --keepParent Artifacts/CNono.xcframework .build/release/CNono.xcframework.zip
+          cp Artifacts/MANIFEST.json .build/release/MANIFEST.json
+          checksum="$(swift package compute-checksum .build/release/CNono.xcframework.zip)"
+          printf '%s\n' "$checksum" > .build/release/CNono.xcframework.zip.checksum
+          printf 'checksum=%s\n' "$checksum" >> "$GITHUB_OUTPUT"
+
+      - name: Update Package.swift checksum
+        run: |
+          python3 - "${{ inputs.version }}" "${{ steps.package.outputs.checksum }}" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          version = sys.argv[1]
+          checksum = sys.argv[2]
+          path = pathlib.Path("Package.swift")
+          text = path.read_text(encoding="utf-8")
+          text = re.sub(r'let cNonoReleaseVersion = "[^"]+"', f'let cNonoReleaseVersion = "{version}"', text)
+          text = re.sub(r'let cNonoReleaseChecksum = "[0-9a-f]{64}"', f'let cNonoReleaseChecksum = "{checksum}"', text)
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Commit release manifest update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Package.swift
+          git commit -m "chore: prepare release ${{ inputs.version }}"
+          git push origin HEAD:${GITHUB_REF_NAME}
+
+      - name: Tag release commit
+        run: |
+          git tag "${{ inputs.version }}"
+          git push origin "${{ inputs.version }}"
+
+      - name: Create GitHub release
+        run: |
+          args=()
+          if [[ "${{ inputs.prerelease }}" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${{ inputs.version }}" \
+            .build/release/CNono.xcframework.zip \
+            .build/release/CNono.xcframework.zip.checksum \
+            .build/release/MANIFEST.json \
+            --title "${{ inputs.version }}" \
+            --notes "Unofficial arm64 macOS Swift package release for nono." \
+            "${args[@]}"

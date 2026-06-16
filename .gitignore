@@ -1,0 +1,4 @@
+.build/
+.DS_Store
+Artifacts/CNono.xcframework/
+Artifacts/MANIFEST.json

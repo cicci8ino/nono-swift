@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  macos:
+    name: macOS SwiftPM
+    runs-on: macos-14
+
+    env:
+      NONO_SWIFT_BINARY_TARGET: local
+      NONO_REQUIRE_APPLY: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify arm64 runner
+        run: test "$(uname -m)" = "arm64"
+
+      - name: Install Rust macOS target
+        run: rustup target add aarch64-apple-darwin
+
+      - name: Build arm64 artifact
+        run: make artifacts
+
+      - name: Verify artifact manifest
+        run: make verify-artifacts
+
+      - name: Run Swift tests
+        run: swift test
+
+      - name: Run strict apply fixture
+        run: |
+          NONO_APPLY_SCENARIO=minimal-filesystem-network swift run NonoSwiftApplySandboxFixture
+          NONO_APPLY_SCENARIO=processes-run-with-system-grants swift run NonoSwiftApplySandboxFixture
