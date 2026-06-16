@@ -3,6 +3,9 @@
 [![CI](https://github.com/cicci8ino/nono-swift/actions/workflows/ci.yml/badge.svg)](https://github.com/cicci8ino/nono-swift/actions/workflows/ci.yml)
 [![Release](https://github.com/cicci8ino/nono-swift/actions/workflows/release.yml/badge.svg)](https://github.com/cicci8ino/nono-swift/actions/workflows/release.yml)
 
+> [!WARNING]
+> This is the only piece of text in the entire repository that has properly been reviewed by a human. This package is not production ready, it has not been security reviewed or security tested, it has been heavily (I mean, mostly) developed with AI coding agents and it's only meant to be used by me on PoCs rather than production ready projects. Do not rely on it as a security boundary for sensitive workloads without your own review, testing, and threat analysis.
+
 Swift Package Manager bindings for [`nono`](https://github.com/always-further/nono), a capability-based process sandbox.
 
 This is an unofficial Swift macOS package. It is not maintained by, endorsed by, or affiliated with the upstream `nono` project.
@@ -127,7 +130,13 @@ Useful error codes include:
 
 ## Build From Source
 
-The Swift package links a binary target:
+By default, `Package.swift` uses the released `CNono.xcframework.zip` binary target. Source checkouts can instead use a locally generated binary target by setting:
+
+```sh
+NONO_SWIFT_BINARY_TARGET=local
+```
+
+That local mode expects this generated path:
 
 ```text
 Artifacts/CNono.xcframework
@@ -148,7 +157,7 @@ make artifacts
 make verify-artifacts
 ```
 
-`make artifacts` and `make artifacts-arm64` are equivalent; both produce an arm64-only local artifact.
+`make artifacts-arm64` is kept as an alias; this package only builds arm64 artifacts.
 
 Local source builds use the generated artifact by setting `NONO_SWIFT_BINARY_TARGET=local`. The Makefile does this automatically. If you run SwiftPM directly from a source checkout, pass the variable yourself:
 
@@ -183,7 +192,7 @@ NONO_REF=<commit-or-tag> make artifacts
 From a source checkout, run normal tests with the Makefile so the local artifact is generated and selected:
 
 ```sh
-make test-arm64
+make test
 ```
 
 Or run SwiftPM directly after building artifacts:
@@ -199,12 +208,6 @@ NONO_SWIFT_BINARY_TARGET=local swift test
 make test-apply
 ```
 
-For the apply fixture only:
-
-```sh
-make test-apply-arm64
-```
-
 The fixture applies the sandbox only to its own process. It runs two separate scenarios because sandbox application is irreversible:
 
 1. A minimal sandbox first verifies `/usr/bin/whoami` runs before sandboxing, then applies caps and verifies filesystem/network restrictions plus that an explicit platform `process-exec*` deny prevents the command from running.
@@ -212,21 +215,9 @@ The fixture applies the sandbox only to its own process. It runs two separate sc
 
 The fixture does not persist after the process exits and does not affect the shell that launched it.
 
-## Release Checklist
+## Releases
 
-Do not commit generated binaries. To publish a release, run the manual GitHub Actions `Release` workflow with a semantic version such as `0.1.0`.
-
-The release workflow:
-
-1. Builds the arm64 `CNono.xcframework` from upstream source.
-2. Verifies `Artifacts/MANIFEST.json`.
-3. Runs the Swift test suite and strict apply fixture.
-4. Zips the XCFramework.
-5. Computes `swift package compute-checksum`.
-6. Updates `Package.swift` with the release version and checksum.
-7. Commits the manifest update, tags the release, and uploads `CNono.xcframework.zip` as a GitHub Release asset.
-
-The generated `Artifacts/CNono.xcframework` and `Artifacts/MANIFEST.json` remain ignored and unversioned.
+Generated binaries are not committed to git. Releases publish `CNono.xcframework.zip` as a GitHub Release asset, and `Package.swift` points SwiftPM at that asset with its checksum.
 
 ## macOS Path Canonicalization
 
