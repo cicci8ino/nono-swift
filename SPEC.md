@@ -180,6 +180,14 @@ The Swift target must link Apple `Security.framework`, matching the Go CGo flags
 
 ```swift
 public func apply(_ capabilities: CapabilitySet) throws
+public func sandboxedExec(
+    _ capabilities: CapabilitySet,
+    command: [String],
+    cwd: String?,
+    environment: [String: String],
+    inheritEnvironment: Bool,
+    timeout: TimeInterval?
+) throws -> SandboxedExecResult
 public var isSupported: Bool { get }
 public func supportInfo() -> PlatformInfo
 public var version: String { get }
@@ -188,6 +196,8 @@ public var version: String { get }
 Consumers can call these directly after `import NonoSwift` or qualify them with the module name, for example `try NonoSwift.apply(caps)`.
 
 `apply(_:)` is irreversible. On success it must free and invalidate the consumed capability set so later use throws `NonoError.Code.invalidArgument`.
+
+`sandboxedExec` forks a child, applies the capability set in the child, then executes the command. The parent remains unsandboxed and retains ownership of the capability set.
 
 ### CapabilitySet
 
@@ -201,17 +211,13 @@ public final class CapabilitySet: @unchecked Sendable {
     public func allowPath(_ path: String, access: AccessMode) throws
     public func allowFile(_ path: String, access: AccessMode) throws
 
-    @available(*, deprecated, message: "Use setNetworkMode(_:) instead.")
-    public func setNetworkBlocked(_ blocked: Bool) throws
-
     public func setNetworkMode(_ mode: NetworkMode) throws
+    public func blockNetwork() throws
     public var networkMode: NetworkMode { get }
 
     public func setProxyPort(_ port: UInt16) throws
     public var proxyPort: UInt16 { get }
 
-    public func allowCommand(_ command: String) throws
-    public func blockCommand(_ command: String) throws
     public func addPlatformRule(_ rule: String) throws
 
     public func deduplicate() throws
@@ -314,6 +320,12 @@ public struct PlatformInfo: Sendable, Equatable {
     public let platform: String
     public let details: String
 }
+
+public struct SandboxedExecResult: Sendable, Equatable {
+    public let stdout: Data
+    public let stderr: Data
+    public let exitCode: Int32
+}
 ```
 
 String descriptions must match `nono-go`:
@@ -412,14 +424,17 @@ The Swift package must preserve these `nono-go` behaviors:
 4. macOS paths are canonicalized by the C library, including `/var` resolving under `/private/var`.
 5. Network mode supports `.blocked`, `.allowAll`, and `.proxyOnly`.
 6. Proxy port is meaningful only for `.proxyOnly`.
-7. `allowCommand` and `blockCommand` are exposed for upstream manifest compatibility; upstream treats them as startup-only metadata, not child-process enforcement.
-8. `addPlatformRule` accepts macOS Seatbelt S-expressions and may reject malformed or root-granting rules.
-9. `deduplicate` keeps the highest access level for overlapping filesystem capabilities.
-10. `pathCovered` checks directory capability coverage.
-11. `fileSystemCapabilities` returns all filesystem capabilities and skips entries whose access mode is `NONO_ACCESS_MODE_INVALID`.
-12. `QueryContext` clones capabilities at creation time.
-13. `SandboxState` JSON round-trips capability sets.
-14. `apply` applies the sandbox to the current process and all children and is irreversible.
+7. `blockNetwork()` is a non-deprecated convenience equivalent to `setNetworkMode(.blocked)`.
+8. Do not expose startup-only command allow/block metadata as sandbox enforcement API.
+9. `sandboxedExec` applies the sandbox in a child process before `execve`, captures stdout/stderr, and returns nonzero child exits as `SandboxedExecResult` rather than throwing.
+10. `sandboxedExec` must reject empty commands, NUL-containing strings, negative timeouts, invalid environment keys, and dynamic-loader environment variables.
+11. `addPlatformRule` accepts macOS Seatbelt S-expressions and may reject malformed or root-granting rules.
+12. `deduplicate` keeps the highest access level for overlapping filesystem capabilities.
+13. `pathCovered` checks directory capability coverage.
+14. `fileSystemCapabilities` returns all filesystem capabilities and skips entries whose access mode is `NONO_ACCESS_MODE_INVALID`.
+15. `QueryContext` clones capabilities at creation time.
+16. `SandboxState` JSON round-trips capability sets.
+17. `apply` applies the sandbox to the current process and all children and is irreversible.
 
 ## Example Usage
 
@@ -431,7 +446,7 @@ defer { caps.close() }
 
 try caps.allowPath("/Users/andrea/data", access: .read)
 try caps.allowPath("/tmp", access: .readWrite)
-try caps.setNetworkMode(.blocked)
+try caps.blockNetwork()
 
 try NonoSwift.apply(caps)
 ```

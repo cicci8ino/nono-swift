@@ -59,7 +59,7 @@ final class QueryContextTests: XCTestCase {
         let caps = CapabilitySet()
         defer { caps.close() }
 
-        try caps.setNetworkBlocked(true)
+        try caps.setNetworkMode(.blocked)
         let query = try QueryContext(capabilities: caps)
         defer { query.close() }
 

@@ -34,12 +34,10 @@ test-arm64: artifacts-arm64
 	$(SWIFT) test $(SWIFT_PM_FLAGS)
 
 test-apply: artifacts
-	NONO_REQUIRE_APPLY=1 NONO_APPLY_SCENARIO=minimal-filesystem-network $(SWIFT) run $(SWIFT_PM_FLAGS) NonoSwiftApplySandboxFixture
-	NONO_REQUIRE_APPLY=1 NONO_APPLY_SCENARIO=processes-run-with-system-grants $(SWIFT) run $(SWIFT_PM_FLAGS) NonoSwiftApplySandboxFixture
+	NONO_REQUIRE_APPLY=1 $(SWIFT) test $(SWIFT_PM_FLAGS) --filter ApplySandboxTests
 
 test-apply-arm64: artifacts-arm64
-	NONO_REQUIRE_APPLY=1 NONO_APPLY_SCENARIO=minimal-filesystem-network $(SWIFT) run $(SWIFT_PM_FLAGS) NonoSwiftApplySandboxFixture
-	NONO_REQUIRE_APPLY=1 NONO_APPLY_SCENARIO=processes-run-with-system-grants $(SWIFT) run $(SWIFT_PM_FLAGS) NonoSwiftApplySandboxFixture
+	NONO_REQUIRE_APPLY=1 $(SWIFT) test $(SWIFT_PM_FLAGS) --filter ApplySandboxTests
 
 clean:
 	rm -rf .build Artifacts/CNono.xcframework Artifacts/MANIFEST.json

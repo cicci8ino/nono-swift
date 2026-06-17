@@ -17,6 +17,7 @@ func canonicalPath(_ url: URL) -> String {
 enum FixtureError: Error, CustomStringConvertible {
     case unexpectedSuccess(String)
     case missingCommand(String)
+    case networkAccessWasBlocked(errno: Int32)
     case networkAccessWasNotBlocked(errno: Int32)
     case processLaunchFailed(path: String, errno: Int32)
     case commandFailed(path: String, status: Int32, output: String)
@@ -30,6 +31,8 @@ enum FixtureError: Error, CustomStringConvertible {
             return "\(operation) unexpectedly succeeded"
         case .missingCommand(let path):
             return "\(path) is not available or not executable"
+        case .networkAccessWasBlocked(let code):
+            return "network access was blocked; errno=\(code)"
         case .networkAccessWasNotBlocked(let code):
             return "network access was not blocked; errno=\(code)"
         case .processLaunchFailed(let path, let code):
@@ -87,6 +90,33 @@ func verifyNetworkBlocked() throws {
     }
 
     throw FixtureError.networkAccessWasNotBlocked(errno: result == -1 ? errno : 0)
+}
+
+func verifyNetworkAllowed() throws {
+    log("checking network is allowed")
+    let fileDescriptor = socket(AF_INET, SOCK_STREAM, 0)
+    guard fileDescriptor != -1 else {
+        throw FixtureError.networkAccessWasBlocked(errno: errno)
+    }
+    defer { close(fileDescriptor) }
+
+    var address = sockaddr_in()
+    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = in_port_t(9).bigEndian
+    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+    let result = withUnsafePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+            connect(fileDescriptor, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+
+    if result == -1, errno == EPERM || errno == EACCES {
+        throw FixtureError.networkAccessWasBlocked(errno: errno)
+    }
+
+    log("network was not sandbox-blocked")
 }
 
 func withCStringArray<T>(_ strings: [String], _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) throws -> T) throws -> T {
@@ -216,30 +246,6 @@ func requireCommandExists(_ fileManager: FileManager) throws -> FixtureCommand {
     return FixtureCommand(path: command, arguments: [])
 }
 
-func addReadablePathIfDirectoryExists(_ path: String, to caps: CapabilitySet) throws {
-    var isDirectory: ObjCBool = false
-    guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
-        return
-    }
-
-    try caps.allowPath(canonicalPath(URL(fileURLWithPath: path, isDirectory: true)), access: .read)
-}
-
-func addSystemRuntimeReadGrants(to caps: CapabilitySet) throws {
-    for path in [
-        "/usr",
-        "/bin",
-        "/System",
-        "/etc",
-        "/private/etc",
-        "/Library",
-        "/Applications/Xcode.app",
-        "/Library/Developer"
-    ] {
-        try addReadablePathIfDirectoryExists(path, to: caps)
-    }
-}
-
 struct FixtureTree {
     let root: URL
     let canonicalReadWriteDirectory: String
@@ -322,6 +328,52 @@ func verifyFilesystemEnforcement(_ tree: FixtureTree) throws {
     }
 }
 
+func verifyFilesystemDenied(_ tree: FixtureTree) throws {
+    try expectFailure("read without filesystem capabilities") {
+        _ = try String(contentsOf: tree.canonicalReadWriteFile, encoding: .utf8)
+    }
+    try expectFailure("write without filesystem capabilities") {
+        try "should fail".write(to: tree.canonicalReadWriteCreatedFile, atomically: false, encoding: .utf8)
+    }
+}
+
+func runEmptySandboxDefaultsScenario() throws {
+    log("starting scenario: empty-sandbox-defaults")
+
+    let fileManager = FileManager.default
+    let command = try requireCommandExists(fileManager)
+    let tree = try makeFixtureTree()
+    let commandHome = URL(fileURLWithPath: tree.canonicalReadWriteDirectory)
+
+    try verifyProcessRuns(
+        path: command.path,
+        arguments: command.arguments,
+        home: commandHome,
+        stage: "before sandbox"
+    )
+
+    let caps = CapabilitySet()
+
+    log("configured capabilities:")
+    log(caps.summary)
+
+    log("applying sandbox to fixture process")
+    guard try applySandbox(caps) else {
+        return
+    }
+    log("sandbox applied")
+
+    try verifyFilesystemDenied(tree)
+    try verifyNetworkAllowed()
+    try verifyProcessRuns(
+        path: command.path,
+        arguments: command.arguments,
+        home: commandHome,
+        stage: "after sandbox"
+    )
+    log("scenario empty-sandbox-defaults verified")
+}
+
 func runMinimalFilesystemScenario() throws {
     log("starting scenario: minimal-filesystem-network")
 
@@ -365,8 +417,8 @@ func runMinimalFilesystemScenario() throws {
     log("scenario minimal-filesystem-network verified")
 }
 
-func runProcessesWithSystemGrantsScenario() throws {
-    log("starting scenario: processes-run-with-system-grants")
+func runProcessAllowedScenario() throws {
+    log("starting scenario: process-runs-without-exec-deny")
 
     let fileManager = FileManager.default
     let command = try requireCommandExists(fileManager)
@@ -383,7 +435,6 @@ func runProcessesWithSystemGrantsScenario() throws {
     let caps = CapabilitySet()
     try caps.allowPath(tree.canonicalReadWriteDirectory, access: .readWrite)
     try caps.allowPath(tree.canonicalReadOnlyDirectory, access: .read)
-    try addSystemRuntimeReadGrants(to: caps)
     try caps.setNetworkMode(.blocked)
 
     log("configured capabilities:")
@@ -403,16 +454,18 @@ func runProcessesWithSystemGrantsScenario() throws {
         home: commandHome,
         stage: "after sandbox"
     )
-    log("scenario processes-run-with-system-grants verified")
+    log("scenario process-runs-without-exec-deny verified")
 }
 
 func run() throws {
     let scenario = ProcessInfo.processInfo.environment["NONO_APPLY_SCENARIO"] ?? "minimal-filesystem-network"
     switch scenario {
+    case "empty-sandbox-defaults":
+        try runEmptySandboxDefaultsScenario()
     case "minimal-filesystem-network":
         try runMinimalFilesystemScenario()
-    case "processes-run-with-system-grants":
-        try runProcessesWithSystemGrantsScenario()
+    case "process-runs-without-exec-deny":
+        try runProcessAllowedScenario()
     default:
         throw FixtureError.unknownScenario(scenario)
     }

@@ -2,12 +2,16 @@ import Foundation
 import XCTest
 
 final class ApplySandboxTests: XCTestCase {
+    func testApplySandboxEmptyDefaults() throws {
+        try runFixture(scenario: "empty-sandbox-defaults")
+    }
+
     func testApplySandboxMinimalFilesystemNetwork() throws {
         try runFixture(scenario: "minimal-filesystem-network")
     }
 
-    func testApplySandboxProcessesRunWithSystemGrants() throws {
-        try runFixture(scenario: "processes-run-with-system-grants")
+    func testApplySandboxProcessRunsWithoutExecDeny() throws {
+        try runFixture(scenario: "process-runs-without-exec-deny")
     }
 
     private func runFixture(scenario: String) throws {
@@ -30,7 +34,10 @@ final class ApplySandboxTests: XCTestCase {
             throw XCTSkip(output)
         }
 
-        XCTAssertEqual(process.terminationStatus, 0, output)
+        guard process.terminationStatus == 0 else {
+            XCTFail(output)
+            return
+        }
         XCTAssertTrue(output.contains("scenario \(scenario) verified"), output)
     }
 

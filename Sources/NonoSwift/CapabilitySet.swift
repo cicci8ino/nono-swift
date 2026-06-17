@@ -52,17 +52,14 @@ public final class CapabilitySet: @unchecked Sendable {
         }
     }
 
-    @available(*, deprecated, message: "Use setNetworkMode(_:) instead.")
-    public func setNetworkBlocked(_ blocked: Bool) throws {
-        try withOpenPointer { pointer in
-            try throwIfError(nono_capability_set_set_network_blocked(pointer, blocked))
-        }
-    }
-
     public func setNetworkMode(_ mode: NetworkMode) throws {
         try withOpenPointer { pointer in
             try throwIfError(nono_capability_set_set_network_mode(pointer, mode.rawValue))
         }
+    }
+
+    public func blockNetwork() throws {
+        try setNetworkMode(.blocked)
     }
 
     public var networkMode: NetworkMode {
@@ -85,34 +82,6 @@ public final class CapabilitySet: @unchecked Sendable {
 
         guard let pointer else { return 0 }
         return nono_capability_set_proxy_port(pointer)
-    }
-
-    /// Adds a command allowlist entry for compatibility with upstream nono manifests.
-    ///
-    /// This does not grant filesystem/runtime access required by the command, and upstream
-    /// nono marks command allow/block entries as startup-only rather than child-process enforcement.
-    public func allowCommand(_ command: String) throws {
-        try checkNoNUL(command)
-        try withOpenPointer { pointer in
-            let code = command.withCString { cCommand in
-                nono_capability_set_allow_command(pointer, cCommand)
-            }
-            try throwIfError(code)
-        }
-    }
-
-    /// Adds a command blocklist entry for compatibility with upstream nono manifests.
-    ///
-    /// This does not replace OS sandbox filesystem/runtime restrictions, and upstream nono
-    /// marks command allow/block entries as startup-only rather than child-process enforcement.
-    public func blockCommand(_ command: String) throws {
-        try checkNoNUL(command)
-        try withOpenPointer { pointer in
-            let code = command.withCString { cCommand in
-                nono_capability_set_block_command(pointer, cCommand)
-            }
-            try throwIfError(code)
-        }
     }
 
     public func addPlatformRule(_ rule: String) throws {

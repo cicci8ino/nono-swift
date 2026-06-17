@@ -19,10 +19,8 @@ final class CapabilitySetTests: XCTestCase {
             { try caps.allowPath(directory.path, access: .read) },
             { try caps.allowFile(file.path, access: .read) },
             { try caps.setNetworkMode(.allowAll) },
-            { try caps.setNetworkBlocked(true) },
+            { try caps.blockNetwork() },
             { try caps.setProxyPort(8080) },
-            { try caps.allowCommand("git") },
-            { try caps.blockCommand("curl") },
             { try caps.addPlatformRule("(version 1)") },
             { try caps.deduplicate() }
         ]
@@ -85,8 +83,6 @@ final class CapabilitySetTests: XCTestCase {
         let checks: [() throws -> Void] = [
             { try caps.allowPath("/tmp\0truncated", access: .read) },
             { try caps.allowFile("/tmp\0truncated", access: .read) },
-            { try caps.allowCommand("git\0 --bypass") },
-            { try caps.blockCommand("curl\0 --bypass") },
             { try caps.addPlatformRule("rule\0inject") },
             { _ = try caps.pathCovered("/tmp\0truncated") }
         ]
@@ -98,12 +94,10 @@ final class CapabilitySetTests: XCTestCase {
         }
     }
 
-    func testCommandRulesAndPlatformRules() throws {
+    func testPlatformRules() throws {
         let caps = CapabilitySet()
         defer { caps.close() }
 
-        try caps.allowCommand("git")
-        try caps.blockCommand("curl")
         try caps.addPlatformRule("(version 1)")
     }
 
@@ -141,17 +135,28 @@ final class CapabilitySetTests: XCTestCase {
         XCTAssertEqual(caps.proxyPort, 8080)
     }
 
-    func testSetNetworkBlockedInteraction() throws {
+    func testSetNetworkModeBlockedInteraction() throws {
         let caps = CapabilitySet()
         defer { caps.close() }
 
-        try caps.setNetworkBlocked(true)
+        try caps.setNetworkMode(.blocked)
         XCTAssertEqual(caps.networkMode, .blocked)
         XCTAssertTrue(caps.isNetworkBlocked)
 
-        try caps.setNetworkBlocked(false)
+        try caps.setNetworkMode(.allowAll)
         XCTAssertEqual(caps.networkMode, .allowAll)
         XCTAssertFalse(caps.isNetworkBlocked)
+    }
+
+    func testBlockNetworkConvenience() throws {
+        let caps = CapabilitySet()
+        defer { caps.close() }
+
+        try caps.setNetworkMode(.allowAll)
+        try caps.blockNetwork()
+
+        XCTAssertEqual(caps.networkMode, .blocked)
+        XCTAssertTrue(caps.isNetworkBlocked)
     }
 
     func testPathCovered() throws {
