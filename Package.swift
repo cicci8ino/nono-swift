@@ -4,8 +4,8 @@ import PackageDescription
 
 // Updated by .github/workflows/release.yml. Local development uses
 // NONO_SWIFT_BINARY_TARGET=local to select Artifacts/CNono.xcframework instead.
-let cNonoReleaseVersion = "0.0.1"
-let cNonoReleaseChecksum = "337a5b399d8d827d507571199a738a9ac82cc66ecdf9061f2d230a5368cb7126"
+let cNonoReleaseVersion = "0.0.2"
+let cNonoReleaseChecksum = "76910f93c8516c56890dcc9759a242a975a5cf6a71418dbf1053240e7390e856"
 let useLocalCNono = ProcessInfo.processInfo.environment["NONO_SWIFT_BINARY_TARGET"] == "local"
 let cNonoTarget: Target = useLocalCNono
     ? .binaryTarget(
