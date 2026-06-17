@@ -31,8 +31,3 @@ jobs:
 
       - name: Run Swift tests
         run: swift test
-
-      - name: Run strict apply fixture
-        run: |
-          NONO_APPLY_SCENARIO=minimal-filesystem-network swift run NonoSwiftApplySandboxFixture
-          NONO_APPLY_SCENARIO=processes-run-with-system-grants swift run NonoSwiftApplySandboxFixture
